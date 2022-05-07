@@ -1,4 +1,6 @@
 from copy import deepcopy
+import enum
+import logging
 from time import sleep
 
 
@@ -21,13 +23,21 @@ class State:
         return "\n".join(lines)
 
 
+@enum.unique
+class InputType(enum.Enum):
+    END_GAME = enum.auto()
+
+
 class Input:
-    pass
+    input_type: InputType
 
 
 def update_state(state: State, input: Input) -> State:
     next_state = deepcopy(state)
+    logging.debug(f"input: {input}")
+    logging.debug(f"state: {state}")
     next_state.turn = next_state.turn + 1
+    next_state.game_over = True
     return next_state
 
 
@@ -36,8 +46,11 @@ def present(state: State) -> None:
     return None
 
 
-def get_input() -> Input:
-    sleep(1)
+def get_input(state: State) -> Input:
+    if state.turn == 3:
+        return Input()
+    else:
+        sleep(1)
     return Input()
 
 
@@ -55,16 +68,14 @@ def save_state(state: State) -> None:
 
 
 def game_loop() -> None:
-    state = load_state()
     while True:
         state = load_state()
         present(state)
-        input = get_input()
+        if state.game_over:
+            break
+        input = get_input(state)
         next_state = update_state(state, input)
         save_state(next_state)
 
 
 game_loop()
-
-
-    
