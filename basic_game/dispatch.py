@@ -15,7 +15,7 @@ def dispatch(action: Action) -> None:
     the state is ready to be updated.
     """
     global action_queue
-    logging.debug(f"dispatch: {action}")
+    logging.info(f"dispatch: {action}")
     action_queue = [*action_queue, action]
 
 

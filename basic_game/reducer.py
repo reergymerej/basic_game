@@ -7,7 +7,7 @@ from basic_game.state import State
 
 def update_state(state: State, action: Action) -> State:
     next_state = deepcopy(state)
-    logging.info(f'action: {action.type}, "{action.data}"')
+    logging.debug(f'action: {action.type}, "{action.data}"')
 
     action_type = action.type
     if action_type == ActionType.END_GAME:
