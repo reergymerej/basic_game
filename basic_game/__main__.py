@@ -26,18 +26,27 @@ class State:
 @enum.unique
 class InputType(enum.Enum):
     END_GAME = enum.auto()
+    TICK = enum.auto()
 
 
 class Input:
     input_type: InputType
 
+    def __init__(self, input_type: InputType) -> None:
+        self.input_type = input_type
+
 
 def update_state(state: State, input: Input) -> State:
     next_state = deepcopy(state)
-    logging.debug(f"input: {input}")
+    logging.info(f"input: {input.input_type}")
     logging.debug(f"state: {state}")
-    next_state.turn = next_state.turn + 1
-    next_state.game_over = True
+
+    if input.input_type == InputType.END_GAME:
+        next_state.game_over = True
+    elif input.input_type == InputType.TICK:
+        next_state.turn = next_state.turn + 1
+
+    logging.debug(f"next_state: {next_state}")
     return next_state
 
 
@@ -48,10 +57,10 @@ def present(state: State) -> None:
 
 def get_input(state: State) -> Input:
     if state.turn == 3:
-        return Input()
+        return Input(InputType.END_GAME)
     else:
         sleep(1)
-    return Input()
+    return Input(InputType.TICK)
 
 
 saved_state = State()
