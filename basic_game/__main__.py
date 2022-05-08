@@ -1,5 +1,4 @@
 import argparse
-from distutils.sysconfig import customize_compiler
 import enum
 import json
 import logging
@@ -7,6 +6,7 @@ import os
 import sys
 import time
 from copy import deepcopy
+from distutils.sysconfig import customize_compiler
 from pathlib import Path
 from signal import SIGINT, signal
 from typing import Final, List, Optional, Union
