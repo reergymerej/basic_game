@@ -4,13 +4,13 @@ import logging
 import os
 import sys
 import time
-from copy import deepcopy
 from pathlib import Path
 from signal import SIGINT, signal
-from typing import List, Optional
 from basic_game.action import Action
+from basic_game.dispatch import dispatch, get_action
 from basic_game.enums import ActionType, Prompt
 from basic_game.present import present
+from basic_game.reducer import update_state
 
 from basic_game.state import State
 
@@ -31,38 +31,6 @@ def parse_args(args) -> argparse.Namespace:
     return parser.parse_args()
 
 
-def update_state(state: State, action: Action) -> State:
-    next_state = deepcopy(state)
-    logging.info(f'action: {action.type}, "{action.data}"')
-
-    action_type = action.type
-    if action_type == ActionType.END_GAME:
-        next_state.game_over = True
-    elif action_type == ActionType.TICK:
-        next_state.turn = next_state.turn + 1
-    elif action_type == ActionType.PROMPT_USER:
-        if type(action.data) == Prompt:
-            next_state.user_prompt = action.data
-        else:
-            raise TypeError("user prompt is not a Prompt")
-    elif action_type == ActionType.SET_USER_INPUT:
-        next_state.user_prompt = None
-        next_state.user_input = str(action.data)
-        logging.debug(
-            "setting user response\n"
-            f"\tQ: {state.user_prompt}\n"
-            f'\tA: "{action.data}"'
-        )
-        if state.user_prompt == Prompt.END_GAME:
-            next_state.user_input = None
-            if next_state.user_input == "y":
-                next_state.game_over = True
-    else:
-        raise NotImplementedError(f'unhandled action_type: "{action_type}"')
-
-    return next_state
-
-
 def load_state(state_file_path: Path) -> State:
     try:
         with open(state_file_path, "r") as file_pointer:
@@ -71,6 +39,11 @@ def load_state(state_file_path: Path) -> State:
                 "Checking loaded state to see if it "
                 "matches current state version schema version."
             )
+            if state_dict["user_prompt"]:
+                logging.debug("converting saved user_prompt to enum")
+                user_prompt = Prompt(state_dict["user_prompt"])
+                state_dict["user_prompt"] = user_prompt
+
             loaded_state_version = state_dict["state_version"]
             current_state_version = State.state_version
             logging.debug(
@@ -94,23 +67,11 @@ def save_state(
     with open(state_file_path, "w") as file_pointer:
         state_dict = state.__dict__
         state_dict["state_version"] = state.state_version
+        if state_dict["user_prompt"]:
+            state_dict["user_prompt"] = state_dict["user_prompt"].value
         logging.debug(f"saving state: {state_dict}")
-        json.dump(state.__dict__, file_pointer)
+        json.dump(state.__dict__, file_pointer, default=str)
     return None
-
-
-action_queue: List[Action] = []
-
-
-def get_action(state: State) -> Optional[Action]:
-    global action_queue
-    logging.debug(f"`get_action`: action queue: {action_queue}")
-    if len(action_queue) > 0:
-        action = action_queue[0]
-        action_queue = action_queue[1:]
-        return action
-    else:
-        return None
 
 
 def game_loop(state_file_path: Path) -> None:
@@ -153,6 +114,9 @@ def main():
 
     signal(SIGINT, sigint_handler)
 
+    # When the action queue is empty, the game ends.  Start it by dispatching
+    # something.
+    dispatch(Action(ActionType.PROMPT_USER, Prompt.END_GAME))
     game_loop(state_file_path)
     logging.info(f"using state {state_file_path}")
 
