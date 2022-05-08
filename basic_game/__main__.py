@@ -7,7 +7,9 @@ import sys
 import time
 from copy import deepcopy
 from pathlib import Path
+from signal import SIGINT, signal
 from time import sleep
+from typing import List, Optional, Union
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "WARNING").upper()
 logging.basicConfig(
@@ -26,22 +28,29 @@ def parse_args(args) -> argparse.Namespace:
     return parser.parse_args()
 
 
+@enum.unique
+class Prompt(enum.Enum):
+    END_GAME = "Would you like to end the game?"
+
+
 class State:
-    game_over: bool
-    turn: int
+    game_over: bool = False
+    turn: int = 0
+    user_prompt: Optional[Prompt] = Prompt.END_GAME
+    user_input: Optional[str] = None
 
     def __init__(self, **kwargs) -> None:
-        self.game_over = False
-        self.turn = 0
         for k, v in kwargs.items():
             setattr(self, k, v)
 
     def __str__(self) -> str:
-        fields = [
+        user_fields = [
             "game_over",
             "turn",
+            # "user_input",
+            # "user_prompt",
         ]
-        lines = [f"{field}: {getattr(self, field)}" for field in fields]
+        lines = [f"{field}: {getattr(self, field)}" for field in user_fields]
         return "\n".join(lines)
 
     def __repr__(self) -> str:
@@ -49,41 +58,58 @@ class State:
 
 
 @enum.unique
-class InputType(enum.Enum):
+class ActionType(enum.Enum):
     END_GAME = enum.auto()
+    PROMPT_USER = enum.auto()
+    SET_USER_INPUT = enum.auto()
     TICK = enum.auto()
 
 
-class Input:
-    input_type: InputType
+class Action:
+    type: ActionType
+    data: Union[None, str, Prompt]
 
-    def __init__(self, input_type: InputType) -> None:
-        self.input_type = input_type
+    def __init__(
+        self,
+        type: ActionType,
+        data: Union[None, str] = None,
+    ) -> None:
+        self.type = type
+        self.data = data
+
+    def __repr__(self) -> str:
+        return json.dumps(self.__dict__, default=str)
 
 
-def update_state(state: State, input: Input) -> State:
+def update_state(state: State, action: Action) -> State:
     next_state = deepcopy(state)
-    logging.info(f"input: {input.input_type}")
+    logging.info(f"action: {action.type}, {action.data}")
 
-    if input.input_type == InputType.END_GAME:
+    action_type = action.type
+    if action_type == ActionType.END_GAME:
         next_state.game_over = True
-    elif input.input_type == InputType.TICK:
+    elif action_type == ActionType.TICK:
         next_state.turn = next_state.turn + 1
+    elif action_type == ActionType.PROMPT_USER:
+        if type(action.data) == Prompt:
+            next_state.user_prompt = action.data
+        else:
+            raise TypeError("user prompt is not a Prompt")
+    elif action_type == ActionType.SET_USER_INPUT:
+        next_state.user_prompt = None
+        next_state.user_input = str(action.data)
+        logging.debug(
+            "setting user response\n"
+            f"\tQ: {state.user_prompt}\n"
+            f'\tA: "{action.data}"'
+        )
+        if state.user_prompt == Prompt.END_GAME:
+            next_state.game_over = True
+            next_state.user_input = None
+    else:
+        raise NotImplementedError(f'unhandled action_type: "{action_type}"')
 
     return next_state
-
-
-def present(state: State) -> None:
-    print(state)
-    return None
-
-
-def get_input(state: State) -> Input:
-    if state.turn == 3:
-        return Input(InputType.END_GAME)
-    else:
-        sleep(1)
-    return Input(InputType.TICK)
 
 
 def load_state(state_file_path: Path) -> State:
@@ -108,14 +134,54 @@ def save_state(
     return None
 
 
+action_queue: List[Action] = []
+
+
+def dispatch(action: Action) -> None:
+    """Adds an action to the queue.
+
+    This does not update the state immediately, but queues the actions for when
+    the state is ready to be updated.
+    """
+    global action_queue
+    action_queue = [*action_queue, action]
+
+
+def present(state: State) -> None:
+    print(f"\n{'-' * 60}")
+    print(state)
+    print(f"\n{'-' * 60}")
+    if state.user_prompt:
+        user_value = input(state.user_prompt.value)
+        logging.debug(f'user input: "{user_value}"')
+        dispatch(
+            Action(
+                ActionType.SET_USER_INPUT,
+                user_value,
+            )
+        )
+    return None
+
+
+def get_action(state: State) -> Action:
+    global action_queue
+    logging.debug(f"action queue: {action_queue}")
+    if len(action_queue) > 0:
+        action = action_queue[0]
+        action_queue = action_queue[:1]
+        return action
+    else:
+        return Action(ActionType.END_GAME)
+
+
 def game_loop(state_file_path: Path) -> None:
     while True:
         state = load_state(state_file_path)
         present(state)
         if state.game_over:
             break
-        input = get_input(state)
-        next_state = update_state(state, input)
+        action = get_action(state)
+        next_state = update_state(state, action)
         save_state(state_file_path, next_state)
 
 
@@ -129,6 +195,13 @@ def main():
     state_file_path = Path(f".state{time.time()}.json")
     save_state(state_file_path, initial_state)
     logging.info(f"using state {state_file_path}")
+
+    def sigint_handler(signum, frame):
+        logging.info(f"state file: {state_file_path}")
+        exit(1)
+
+    signal(SIGINT, sigint_handler)
+
     game_loop(state_file_path)
 
 
